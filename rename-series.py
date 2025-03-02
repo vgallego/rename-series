@@ -3,6 +3,37 @@ import re
 import tkinter as tk
 from tkinter import filedialog, messagebox
 
+# Constantes para patrones comunes
+PATRONES = [
+    r'\[Cap\.(\d{2,3})\]',  # [Cap.XXX]
+    r'\[(\d{2,3})\]',       # [XXX]
+    r'Cap\.(\d{2,3})',      # Cap.XXX
+    r'S(\d+)E(\d+)',        # SXXEYY (temporada y episodio)
+    r'(\d{2,3})\.',         # XXX.ext (número antes de la extensión)
+    r'(\d{2,3})p',          # XXXp (resolución, ignorar)
+]
+
+# Lista de resoluciones comunes para ignorar
+RESOLUCIONES = ["720p", "1080p", "2160p", "480p"]
+
+def extraer_numero_capitulo(nombre_archivo):
+    """
+    Intenta extraer el número de capítulo usando varios patrones.
+    """
+    nombre_archivo_sin_resolucion = nombre_archivo
+    for resolucion in RESOLUCIONES:
+        nombre_archivo_sin_resolucion = nombre_archivo_sin_resolucion.replace(resolucion, "")
+    
+    for patron in PATRONES:
+        match = re.search(patron, nombre_archivo_sin_resolucion)
+        if match:
+            # Si el patrón es SXXEYY, devuelve el episodio (YY)
+            if "S(\d+)E(\d+)" in patron:
+                return int(match.group(2))
+            # Para otros patrones, devuelve el primer grupo
+            return int(match.group(1))
+    return None
+
 def renombrar_archivos(archivos, nombre_serie, temporada):
     for archivo in archivos:
         try:
@@ -10,17 +41,14 @@ def renombrar_archivos(archivos, nombre_serie, temporada):
             nombre_base = os.path.basename(archivo)
             base, extension = os.path.splitext(nombre_base)
             
-            # Buscar el número de capítulo en el formato [Cap.XXX]
-            match = re.search(r'\[Cap\.(\d+)\]', base, re.IGNORECASE)
-            if not match:
-                print(f"Formato no válido: {archivo}")
+            # Extraer número de capítulo
+            numero_capitulo = extraer_numero_capitulo(base)
+            if numero_capitulo is None:
+                print(f"No se pudo extraer el número de capítulo de {archivo}")
                 continue
                 
-            numero_capitulo = int(match.group(1))
-            numero_episodio = numero_capitulo % 100  # Tomar últimos dos dígitos
-            
             # Formatear nuevo nombre
-            nuevo_nombre = f"{nombre_serie} {temporada}x{numero_episodio:02d}{extension}"
+            nuevo_nombre = f"{nombre_serie} {temporada}x{numero_capitulo:02d}{extension}"
             directorio = os.path.dirname(archivo)
             nueva_ruta = os.path.join(directorio, nuevo_nombre)
             
