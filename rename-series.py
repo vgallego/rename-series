@@ -3,62 +3,74 @@ import re
 import tkinter as tk
 from tkinter import filedialog, messagebox
 
-# Constantes para patrones comunes
+# Lista de patrones y grupo a extraer (expresión regular, grupo)
 PATRONES = [
-    r'\[Cap\.(\d{2,3})\]',  # [Cap.XXX]
-    r'\[(\d{2,3})\]',       # [XXX]
-    r'Cap\.(\d{2,3})',      # Cap.XXX
-    r'S(\d+)E(\d+)',        # SXXEYY (temporada y episodio)
-    r'(\d{2,3})\.',         # XXX.ext (número antes de la extensión)
-    r'(\d{2,3})p',          # XXXp (resolución, ignorar)
+    # Patrones prioritarios (formato explícito temporada-episodio)
+    (r'\bS(\d{1,2})E(\d{1,2})\b', 2),          # S01E03, S2E15
+    (r'\b(\d{1,2})x(\d{1,2})\b', 2),           # 2x03, 01x15
+    
+    # Patrones generales de capítulos
+    (r'Cap[\.\s](\d{2,3})', 1),            # [Cap.101], [Cap 203]
+    (r'\bCap[\.\s](\d{3})\b', 1),               # Cap.101, Cap205
+    (r'\[(\d{3})\]', 1),                        # [105], [207]
+    (r'\b(\d{3})(?!p)\b', 1),                   # 101, 305 (excluye 720p)
+    
+    # Patrones alternativos
+    (r'\bEpisode\s*(\d{1,2})\b', 1),            # Episode 03, Episode 15
+    (r'\b(\d{2})\.', 1),                        # 03.mkv, 15.avi
+    (r'[\._\-](\d{2})[\._\-]', 1)               # _03_, -15-
 ]
 
-# Lista de resoluciones comunes para ignorar
-RESOLUCIONES = ["720p", "1080p", "2160p", "480p"]
+RESOLUCIONES = ["720p", "1080p", "2160p", "480p", "HDTV", "WEB-DL", "h264", "AC3"]
+
+def limpiar_nombre(nombre):
+    """Limpia el nombre de elementos que interfieren"""
+    nombre = re.sub(r'[\[\]\(\)]', '', nombre)  # Elimina corchetes y paréntesis
+    for elemento in RESOLUCIONES:
+        nombre = re.sub(r'\b' + re.escape(elemento) + r'\b', '', nombre, flags=re.IGNORECASE)
+    return nombre.strip()
 
 def extraer_numero_capitulo(nombre_archivo):
-    """
-    Intenta extraer el número de capítulo usando varios patrones.
-    """
-    nombre_archivo_sin_resolucion = nombre_archivo
-    for resolucion in RESOLUCIONES:
-        nombre_archivo_sin_resolucion = nombre_archivo_sin_resolucion.replace(resolucion, "")
+    """Extrae el número de episodio usando múltiples patrones"""
+    nombre_limpio = limpiar_nombre(nombre_archivo)
     
-    for patron in PATRONES:
-        match = re.search(patron, nombre_archivo_sin_resolucion)
-        if match:
-            # Si el patrón es SXXEYY, devuelve el episodio (YY)
-            if "S(\d+)E(\d+)" in patron:
-                return int(match.group(2))
-            # Para otros patrones, devuelve el primer grupo
-            return int(match.group(1))
+    for patron, grupo in PATRONES:
+        try:
+            match = re.search(patron, nombre_limpio, re.IGNORECASE)
+            if match:
+                numero = int(match.group(grupo))
+                
+                # Manejar diferentes formatos numéricos
+                if 100 <= numero <= 999:  # Si es de 3 dígitos (101, 203, etc)
+                    return numero % 100
+                return numero
+        except:
+            continue
     return None
 
 def renombrar_archivos(archivos, nombre_serie, temporada):
     for archivo in archivos:
         try:
-            # Extraer nombre base y extensión
             nombre_base = os.path.basename(archivo)
-            base, extension = os.path.splitext(nombre_base)
+            base, ext = os.path.splitext(nombre_base)
             
-            # Extraer número de capítulo
             numero_capitulo = extraer_numero_capitulo(base)
             if numero_capitulo is None:
                 print(f"No se pudo extraer el número de capítulo de {archivo}")
                 continue
-                
+            
             # Formatear nuevo nombre
-            nuevo_nombre = f"{nombre_serie} {temporada}x{numero_capitulo:02d}{extension}"
+            nuevo_nombre = f"{nombre_serie} {temporada}x{numero_capitulo:02d}{ext}"
             directorio = os.path.dirname(archivo)
             nueva_ruta = os.path.join(directorio, nuevo_nombre)
             
-            # Renombrar el archivo
             os.rename(archivo, nueva_ruta)
             print(f"Renombrado: {archivo} -> {nueva_ruta}")
             
         except Exception as e:
             print(f"Error procesando {archivo}: {str(e)}")
 
+# El resto del código de la interfaz gráfica permanece igual
 def seleccionar_archivos():
     archivos = filedialog.askopenfilenames(title="Selecciona los archivos de la serie")
     if archivos:
