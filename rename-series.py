@@ -5,14 +5,9 @@ from tkinter import filedialog, messagebox
 
 # ---- Robust regex patterns (work even when glued to letters/digits) ----
 PATRONES = [
-    # Season/Episode explicit formats
-    (r'(?<!\d)[sS](\d{1,2})[ ._\-]*[eE](\d{1,2})(?!\d)', 2),   # S01E03, S2E15, S01.E03, etc.
-    (r'(?<!\d)(\d{1,2})x(\d{1,2})(?!\d)', 2),                  # 1x01, 02x10 (also glued like Name1x01)
-
-    # Compressed 3-digit SxEE (e.g., 104 -> S1E04). Excludes things like 720p via (?!\d|p)
-    (r'(?<!\d)(\d{3})(?!\d|p)', 1),                            # 101, 305 (not followed by digit or 'p')
-
-    # Spanish/other alternatives
+    (r'(?<!\d)[sS](\d{1,2})[ ._\-]*[eE](\d{1,2})(?!\d)', 2),
+    (r'(?<!\d)(\d{1,2})x(\d{1,2})(?!\d)', 2),
+    (r'(?<!\d)(\d{3})(?!\d|p)', 1),
     (r'Cap[\.\s](\d{2,3})', 1),
     (r'\[(\d{3})\]', 1),
     (r'\bEpisode\s*(\d{1,2})\b', 1),
@@ -22,7 +17,6 @@ PATRONES = [
     (r'_(\d{2,3})\.', 1),
 ]
 
-# Tokens to remove (we'll strip them even if glued to digits/letters)
 RESOLUCIONES = [
     "720p", "1080p", "2160p", "480p",
     "hdtv", "web-dl", "web dl", "webrip", "bluray",
@@ -30,35 +24,28 @@ RESOLUCIONES = [
     "ac3", "dts"
 ]
 
-# Optional: common site/release noise to strip
 RUIDO = [
-    r'www\.[^\s]+',     # www.newpct1.com, etc.
+    r'www\.[^\s]+',
     r'newpct1', r'by\.[^\s]+', r'\[.*?subs?.*?\]', r'\bsubs?\b'
 ]
 
+# ---- IMPORTANT: store selected paths here (do NOT parse Entry text) ----
+selected_files = []
+
 def limpiar_nombre(nombre: str) -> str:
     """Clean noisy tokens before regex matching."""
-    # Remove brackets but keep content inside removed earlier by design
     nombre = re.sub(r'[\[\]\(\)]', ' ', nombre)
-
-    # Remove resolution tokens even if glued to digits/letters
     for elemento in RESOLUCIONES:
         nombre = re.sub(re.escape(elemento), ' ', nombre, flags=re.IGNORECASE)
-
-    # Remove common noise patterns (websites, tags)
     for patron in RUIDO:
         nombre = re.sub(patron, ' ', nombre, flags=re.IGNORECASE)
-
-    # Normalize separators to spaces
     nombre = re.sub(r'[.\-_\s]+', ' ', nombre)
-    # Collapse multiple spaces
     nombre = re.sub(r'\s+', ' ', nombre).strip()
     return nombre
 
 def extraer_numero_capitulo(nombre_archivo: str):
     """Extract episode number using multiple patterns."""
     nombre_limpio = limpiar_nombre(nombre_archivo)
-
     for patron, grupo in PATRONES:
         m = re.search(patron, nombre_limpio, re.IGNORECASE)
         if m:
@@ -66,7 +53,6 @@ def extraer_numero_capitulo(nombre_archivo: str):
                 num = int(m.group(grupo))
             except ValueError:
                 continue
-            # For compressed 3-digit SxEE (e.g., 104 -> episode 4)
             if num >= 100:
                 return num % 100
             return num
@@ -75,6 +61,11 @@ def extraer_numero_capitulo(nombre_archivo: str):
 def renombrar_archivos(archivos, nombre_serie, temporada):
     for archivo in archivos:
         try:
+            # Skip non-files (just in case a folder sneaks in)
+            if not os.path.isfile(archivo):
+                print(f"Saltado (no es fichero): {archivo}")
+                continue
+
             nombre_base = os.path.basename(archivo)
             base, ext = os.path.splitext(nombre_base)
 
@@ -83,12 +74,10 @@ def renombrar_archivos(archivos, nombre_serie, temporada):
                 print(f"No se pudo extraer el número de capítulo de {archivo}")
                 continue
 
-            # Format new name: "<Serie> <Temporada>x<EE>"
             nuevo_nombre = f"{nombre_serie} {temporada}x{numero_capitulo:02d}{ext}"
             directorio = os.path.dirname(archivo)
             nueva_ruta = os.path.join(directorio, nuevo_nombre)
 
-            # Avoid overwriting
             if os.path.exists(nueva_ruta):
                 print(f"Saltado (ya existe destino): {nueva_ruta}")
                 continue
@@ -101,27 +90,32 @@ def renombrar_archivos(archivos, nombre_serie, temporada):
         except Exception as e:
             print(f"Error procesando {archivo}: {str(e)}")
 
-# --- GUI (unchanged structure) ---
+# --- GUI ---
 def seleccionar_archivos():
+    global selected_files
     archivos = filedialog.askopenfilenames(title="Selecciona los archivos de la serie")
     if archivos:
+        selected_files = list(archivos)
         entry_archivos.delete(0, tk.END)
-        entry_archivos.insert(0, ", ".join(archivos))
+        # Show a summary instead of a comma-separated list (commas break parsing)
+        entry_archivos.insert(0, f"{len(selected_files)} archivo(s) seleccionado(s)")
+    else:
+        selected_files = []
+        entry_archivos.delete(0, tk.END)
 
 def iniciar_renombrado():
     try:
-        archivos_raw = entry_archivos.get().strip()
-        if not archivos_raw:
+        if not selected_files:
             raise ValueError("Selecciona al menos un archivo.")
-        # Split robustly on ", " or "," with optional spaces
-        archivos = [a.strip() for a in re.split(r',\s*', archivos_raw) if a.strip()]
 
         nombre_serie = entry_nombre_serie.get().strip()
         if not nombre_serie:
             raise ValueError("Introduce el nombre de la serie.")
 
         temporada = int(entry_temporada.get())
-        renombrar_archivos(archivos, nombre_serie, temporada)
+
+        # Use the real selected files, not the Entry text
+        renombrar_archivos(selected_files, nombre_serie, temporada)
         messagebox.showinfo("Completado", "Archivos renombrados correctamente")
 
     except ValueError as e:
