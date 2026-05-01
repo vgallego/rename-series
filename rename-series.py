@@ -4,17 +4,26 @@ import tkinter as tk
 from tkinter import filedialog, messagebox
 
 # ---- Robust regex patterns (work even when glued to letters/digits) ----
+# Formato: (patrón_regex, número_grupo_capítulo, descripción)
+# Los patrones se prueban en orden; el primero que coincida se usa
 PATRONES = [
-    (r'(?<!\d)[sS](\d{1,2})[ ._\-]*[eE](\d{1,2})(?!\d)', 2),
-    (r'(?<!\d)(\d{1,2})x(\d{1,2})(?!\d)', 2),
-    (r'(?<!\d)(\d{3})(?!\d|p)', 1),
-    (r'Cap[\.\s](\d{2,3})', 1),
-    (r'\[(\d{3})\]', 1),
-    (r'\bEpisode\s*(\d{1,2})\b', 1),
-    (r'\b(\d{2})\.', 1),
-    (r'[\._\-](\d{2})[\._\-]', 1),
-    (r'_(\d{2,3})_', 1),
-    (r'_(\d{2,3})\.', 1),
+    # Patrones S##E## y ##x## (capturan temporada y capítulo)
+    (r'(?<!\d)[sS](\d{1,2})[ ._\-]*[eE](\d{1,2})(?!\d)', 2, 'S##E## / s##e## (ej: S01E05, s1e3)'),
+    (r'(?<!\d)(\d{1,2})x(\d{1,2})(?!\d)', 2, '##x## (ej: 1x05, 12x03)'),
+    
+    # Patrones de 3 dígitos (asume ### = capítulo, se convierte a 2 dígitos con modulo 100)
+    (r'(?<!\d)(\d{3})(?!\d|p)', 1, '### (ej: 001, 523 -> se convierte a 01, 23)'),
+    
+    # Patrones con etiquetas explícitas de capítulo
+    (r'Cap[\.\s](\d{2,3})', 1, 'Cap## o Cap.## (ej: Cap.05, Cap 12)'),
+    (r'\[(\d{3})\]', 1, '[###] (ej: [001], [105])'),
+    (r'\bEpisode\s*(\d{1,2})\b', 1, 'Episode ## (ej: Episode 5, Episode 12)'),
+    
+    # Patrones con separadores especiales
+    (r'\b(\d{2})\.', 1, '##. (punto después de 2 dígitos, ej: 05.mkv)'),
+    (r'[\._\-](\d{2})[\._\-]', 1, '._##._ o ._##- (ej: video_05_part.mkv)'),
+    (r'_(\d{2,3})_', 1, '_##_ o _###_ (ej: _05_episodio.mkv)'),
+    (r'_(\d{2,3})\.', 1, '_##. o _###. (ej: _05.mkv)'),
 ]
 
 RESOLUCIONES = [
@@ -44,15 +53,28 @@ def limpiar_nombre(nombre: str) -> str:
     return nombre
 
 def extraer_numero_capitulo(nombre_archivo: str):
-    """Extract episode number using multiple patterns."""
+    """
+    Extract episode number using multiple patterns.
+    
+    Patrones con 2 grupos capturan (temporada, capítulo) -> retorna grupo 2
+    Patrones con 1 grupo capturan (capítulo) -> retorna grupo 1
+    
+    Si el número extraído >= 100, se aplica módulo 100 para convertir a 2 dígitos.
+    Ejemplo: 523 -> 23, 101 -> 01
+    """
     nombre_limpio = limpiar_nombre(nombre_archivo)
-    for patron, grupo in PATRONES:
+    for patron_data in PATRONES:
+        patron = patron_data[0]
+        grupo = patron_data[1]
+        # descripcion = patron_data[2]  # Comentario para debugging si se necesita
+        
         m = re.search(patron, nombre_limpio, re.IGNORECASE)
         if m:
             try:
                 num = int(m.group(grupo))
             except ValueError:
                 continue
+            # Convertir 3 dígitos a 2 (ej: 523 -> 23)
             if num >= 100:
                 return num % 100
             return num
